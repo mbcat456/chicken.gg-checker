@@ -11,10 +11,10 @@ It captures balance, wager amount, level, and all available rakeback rewards (qu
 - proxy support
 - saves valid hits cleanly to a text file
 
-### prerequisites
+### Prerequisites
 Python 3.10 or higher.
 
-### installation
+### Installation
 
 1. Clone the repository or download the files.
 2. Open a terminal in the folder and install the required python packages:
