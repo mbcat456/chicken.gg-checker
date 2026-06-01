@@ -5,7 +5,7 @@ Multithreaded python account checker for chicken.gg. It automatically solves clo
 It captures balance, wager amount, level, and all available rakeback rewards (quick, daily, weekly, monthly, and rankup).
 
 ### Features
-- automated turnstile captcha solver (no 3rd party api keys needed)
+- automated turnstile captcha solver
 - multithreaded login checking
 - detailed console ui with live stats (valid, invalid, errors)
 - proxy support
@@ -21,7 +21,7 @@ Python 3.10 or higher.
 
     pip install -r requirements.txt
 
-3. Install the camoufox browser environment (this downloads the patched browser needed to bypass cloudflare):
+3. Install the camoufox browser environment:
 
     python -m camoufox fetch
 
