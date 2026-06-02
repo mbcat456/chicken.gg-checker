@@ -19,11 +19,15 @@ Python 3.10 or higher.
 1. Clone the repository or download the files.
 2. Open a terminal in the folder and install the required python packages:
 
-    pip install -r requirements.txt
+```bash
+pip install -r requirements.txt
+```
 
 3. Install the camoufox browser environment:
 
-    python -m camoufox fetch
+```bash
+python -m camoufox fetch
+```
 
 ### Setup
 
@@ -43,7 +47,9 @@ have a combo file ready (e.g., combo.txt) with your accounts formatted as userna
 
 Run the script from your terminal:
 
-    python checker.py
+```bash
+python checker.py
+```
 
 The script will prompt you for a few things:
 1. Accounts file: type the name of your combo file (e.g., combo.txt) and press enter.
@@ -63,4 +69,4 @@ When an account hits, it saves to valid.txt like this:
 - The captcha solver runs headless (invisible). If you need to debug it, you can edit the script and change "headless=True" to "headless=False".
 
 ### Critical info:
-- No proxying system has been yet implemented to the cloudflare solver, this is one of the major speed bottlencks.
+- No proxying system has been yet implemented to the cloudflare solver, this is one of the major speed bottlenecks.
