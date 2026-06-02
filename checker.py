@@ -119,7 +119,15 @@ class CaptchaSolver:
         return future.result()
 
     async def _solve(self, url, sitekey):
-        page, context = await self.page_pool.get()
+        try:
+            page, context = await asyncio.wait_for(self.page_pool.get(), timeout=60.0)
+        except Exception:
+            return None
+
+        if not hasattr(context, "_solve_count"):
+            context._solve_count = 0
+        context._solve_count += 1
+
         url_with_slash = url if url.endswith("/") else url + "/"
         turnstile_div = f'<div class="cf-turnstile" data-sitekey="{sitekey}"></div>'
         page_data = f'<!DOCTYPE html><html><head><script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script></head><body>{turnstile_div}</body></html>'
@@ -147,7 +155,28 @@ class CaptchaSolver:
                 await page.unroute(url_with_slash)
             except Exception:
                 pass
-            await self.page_pool.put((page, context))
+
+            if context._solve_count >= 50:
+                try:
+                    await context.close()
+                except Exception:
+                    pass
+                
+                recreated = False
+                for _ in range(3):
+                    try:
+                        new_context = await self.browser.new_context()
+                        new_page = await new_context.new_page()
+                        await self.page_pool.put((new_page, new_context))
+                        recreated = True
+                        break
+                    except Exception:
+                        await asyncio.sleep(1)
+                
+                if not recreated:
+                    await self.page_pool.put((page, context))
+            else:
+                await self.page_pool.put((page, context))
 
     def stop(self):
         if not self.loop or not self.loop.is_running():
@@ -470,5 +499,12 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print(f"\n  {RD}Ctrl+C detected during setup, exiting...{R}")
     finally:
-        sys.stdout.flush()
+        try:
+            devnull = open(os.devnull, 'w')
+            sys.stdout = devnull
+            sys.stderr = devnull
+            os.dup2(devnull.fileno(), 1)
+            os.dup2(devnull.fileno(), 2)
+        except Exception:
+            pass
         os._exit(0)
